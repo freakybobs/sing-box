@@ -7,7 +7,7 @@ import (
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/urltest"
-	"github.com/sagernet/sing-box/provider"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing/common/batch"
 	"github.com/sagernet/sing/common/json/badjson"
 
@@ -20,7 +20,7 @@ func proxyProviderRouter(server *Server) http.Handler {
 	r.Get("/", getProviders(server))
 
 	r.Route("/{name}", func(r chi.Router) {
-		r.Use(parseProviderName, findProviderByName(server.router))
+		r.Use(parseProviderName, findProviderByName(server))
 		r.Get("/", getProvider)
 		r.Put("/", updateProvider)
 		r.Get("/healthcheck", checkProvider(server))
@@ -31,10 +31,15 @@ func proxyProviderRouter(server *Server) http.Handler {
 func getProviders(server *Server) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var responseMap, providersMap badjson.JSONObject
-		for _, provider := range server.router.Providers() {
+		for _, provider := range server.provider.Providers() {
 			providersMap.Put(provider.Tag(), providerInfo(server, provider))
 		}
-		responseMap.Put("providers", &providersMap)
+		if providersMap.IsEmpty() {
+			// fix Yacd-meta
+			responseMap.Put("providers", render.M{})
+		} else {
+			responseMap.Put("providers", &providersMap)
+		}
 		response, err := responseMap.MarshalJSON()
 		if err != nil {
 			render.Status(r, http.StatusInternalServerError)
@@ -48,7 +53,6 @@ func getProviders(server *Server) func(w http.ResponseWriter, r *http.Request) {
 func getProvider(w http.ResponseWriter, r *http.Request) {
 	provider := r.Context().Value(CtxKeyProvider).(adapter.Provider)
 	render.JSON(w, r, provider)
-	render.NoContent(w, r)
 }
 
 func providerInfo(server *Server, p adapter.Provider) *badjson.JSONObject {
@@ -57,12 +61,12 @@ func providerInfo(server *Server, p adapter.Provider) *badjson.JSONObject {
 	for _, detour := range p.Outbounds() {
 		proxies = append(proxies, proxyInfo(server, detour))
 	}
-	info.Put("type", "Proxy")       // Proxy, Rule
-	info.Put("vehicleType", "HTTP") // HTTP, File, Compatible
+	info.Put("type", "Proxy")                                // Proxy, Rule
+	info.Put("vehicleType", C.ProviderDisplayName(p.Type())) // HTTP, File, Compatible
 	info.Put("name", p.Tag())
 	info.Put("proxies", proxies)
 	info.Put("updatedAt", p.UpdatedAt())
-	if p, ok := p.(provider.Infoer); ok {
+	if p, ok := p.(adapter.ProviderInfoer); ok {
 		info.Put("subscriptionInfo", p.Info())
 	}
 	return &info
@@ -80,39 +84,7 @@ func updateProvider(w http.ResponseWriter, r *http.Request) {
 
 func checkProvider(server *Server) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		b, _ := batch.New(context.Background(), batch.WithConcurrencyNum[map[string]uint16](10))
-		providerName := r.Context().Value(CtxKeyProviderName).(string)
-		providerChecked := false
-		for _, proxy := range server.router.Outbounds() {
-			c, ok := proxy.(adapter.OutboundCheckGroup)
-			if !ok {
-				continue
-			}
-			tag := proxy.Tag()
-			if _, ok := c.Provider(providerName); ok {
-				providerChecked = true
-				b.Go(tag, func() (map[string]uint16, error) {
-					return c.CheckProvider(r.Context(), providerName)
-				})
-			}
-		}
-
 		checked := make(map[string]bool)
-		if providerChecked {
-			result, err := b.WaitAndGetResult()
-			if err != nil {
-				render.Status(r, http.StatusServiceUnavailable)
-				render.JSON(w, r, newError(err.Error()))
-				return
-			}
-			for _, r := range result {
-				for k := range r.Value {
-					checked[k] = true
-				}
-			}
-		}
-
-		// some outbounds may not be used by any group
 		provider := r.Context().Value(CtxKeyProvider).(adapter.Provider)
 		b2, _ := batch.New(context.Background(), batch.WithConcurrencyNum[any](10))
 		for _, proxy := range provider.Outbounds() {
@@ -126,7 +98,7 @@ func checkProvider(server *Server) func(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			b2.Go(real.Tag(), func() (any, error) {
-				delay, err := urltest.URLTest(r.Context(), "", proxy)
+				delay, err := urltest.URLTest(r.Context(), "", real)
 				tag := real.Tag()
 				if err != nil {
 					server.urlTestHistory.StoreURLTestHistory(tag, &urltest.History{
@@ -155,11 +127,11 @@ func parseProviderName(next http.Handler) http.Handler {
 	})
 }
 
-func findProviderByName(router adapter.Router) func(next http.Handler) http.Handler {
+func findProviderByName(server *Server) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			name := r.Context().Value(CtxKeyProviderName).(string)
-			provider, exist := router.Provider(name)
+			provider, exist := server.provider.Provider(name)
 			if !exist {
 				render.Status(r, http.StatusNotFound)
 				render.JSON(w, r, ErrNotFound)

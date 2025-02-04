@@ -3,85 +3,90 @@ package link
 import (
 	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/json/badoption"
 )
 
 // Vmess is the base struct of vmess link
 type Vmess struct {
-	Tag        string
-	Server     string
-	ServerPort uint16
-	UUID       string
-	AlterID    int
-	Security   string
+	Tag      string `json:"tag,omitempty"`
+	Server   string `json:"server,omitempty"`
+	Port     uint16 `json:"port,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
+	AlterID  int    `json:"alterId,omitempty"`
+	Security string `json:"security,omitempty"`
 
-	Transport     string
-	TransportHost string
-	TransportPath string
+	Transport string `json:"transport,omitempty"`
+	Host      string `json:"host,omitempty"`
+	Path      string `json:"path,omitempty"`
 
-	TLS              bool
-	SNI              string
-	ALPN             []string
-	TLSAllowInsecure bool
-	Fingerprint      string
+	TLS           bool     `json:"tls,omitempty"`
+	SNI           string   `json:"sni,omitempty"`
+	ALPN          []string `json:"alpn,omitempty"`
+	AllowInsecure bool     `json:"allowInsecure,omitempty"`
+	Fingerprint   string   `json:"fingerprint,omitempty"`
 }
 
 // Outbound implements Link
 func (v *Vmess) Outbound() (*option.Outbound, error) {
-	out := &option.Outbound{
-		Type: C.TypeVMess,
-		Tag:  v.Tag,
-		VMessOptions: option.VMessOutboundOptions{
-			ServerOptions: option.ServerOptions{
-				Server:     v.Server,
-				ServerPort: v.ServerPort,
-			},
-			UUID:     v.UUID,
-			AlterId:  v.AlterID,
-			Security: v.Security,
+	opt := &option.VMessOutboundOptions{
+		ServerOptions: option.ServerOptions{
+			Server:     v.Server,
+			ServerPort: v.Port,
 		},
+		UUID:     v.UUID,
+		AlterId:  v.AlterID,
+		Security: v.Security,
 	}
 
 	if v.TLS {
-		out.VMessOptions.TLS = &option.OutboundTLSOptions{
+		opt.TLS = &option.OutboundTLSOptions{
 			Enabled:    true,
-			Insecure:   v.TLSAllowInsecure,
+			Insecure:   v.AllowInsecure,
 			ServerName: v.SNI,
 			ALPN:       v.ALPN,
 		}
 		if len(v.ALPN) > 0 {
-			out.VMessOptions.TLS.UTLS = &option.OutboundUTLSOptions{
+			opt.TLS.UTLS = &option.OutboundUTLSOptions{
 				Enabled:     true,
 				Fingerprint: v.Fingerprint,
 			}
 		}
 	}
 
-	opt := &option.V2RayTransportOptions{
+	topt := &option.V2RayTransportOptions{
 		Type: v.Transport,
 	}
 
 	switch v.Transport {
 	case "":
-		opt = nil
+		topt = nil
 	case C.V2RayTransportTypeHTTP:
-		opt.HTTPOptions.Path = v.TransportPath
-		if v.TransportHost != "" {
-			opt.HTTPOptions.Host = []string{v.TransportHost}
-			opt.HTTPOptions.Headers["Host"] = []string{v.TransportHost}
+		topt.HTTPOptions.Path = v.Path
+		if v.Host != "" {
+			topt.HTTPOptions.Host = []string{v.Host}
+			topt.HTTPOptions.Headers = badoption.HTTPHeader{
+				"Host": {v.Host},
+			}
 		}
 	case C.V2RayTransportTypeWebsocket:
-		opt.WebsocketOptions.Path = v.TransportPath
-		opt.WebsocketOptions.Headers = map[string]option.Listable[string]{
-			"Host": {v.TransportHost},
+		topt.WebsocketOptions.Path = v.Path
+		if v.Host != "" {
+			topt.WebsocketOptions.Headers = badoption.HTTPHeader{
+				"Host": {v.Host},
+			}
 		}
 	case C.V2RayTransportTypeQUIC:
 		// do nothing
 	case C.V2RayTransportTypeGRPC:
-		opt.GRPCOptions.ServiceName = v.TransportHost
+		topt.GRPCOptions.ServiceName = v.Host
 	}
 
-	out.VMessOptions.Transport = opt
-	return out, nil
+	opt.Transport = topt
+	return &option.Outbound{
+		Type:    C.TypeVMess,
+		Tag:     v.Tag,
+		Options: opt,
+	}, nil
 }
 
 // URL implements Link

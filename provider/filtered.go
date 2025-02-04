@@ -64,19 +64,14 @@ func (s *Filtered) Outbound(tag string) (adapter.Outbound, bool) {
 	return detour, ok
 }
 
+// Type returns the type of the provider.
+func (s *Filtered) Type() string {
+	return s.upstream.Type()
+}
+
 // Tag returns the tag of the provider.
 func (s *Filtered) Tag() string {
 	return s.upstream.Tag()
-}
-
-// Start starts the provider.
-func (s *Filtered) Start() error {
-	return s.upstream.Start()
-}
-
-// Close closes the service.
-func (s *Filtered) Close() error {
-	return s.upstream.Close()
 }
 
 // Update updates the provider.

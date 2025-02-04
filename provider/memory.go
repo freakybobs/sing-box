@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 )
 
 var _ adapter.Provider = (*Memory)(nil)
@@ -37,19 +38,14 @@ func (s *Memory) Outbound(tag string) (adapter.Outbound, bool) {
 	return detour, ok
 }
 
+// Type returns the type of the provider.
+func (s *Memory) Type() string {
+	return C.ProviderCompatible
+}
+
 // Tag returns the tag of the provider.
 func (s *Memory) Tag() string {
 	return ""
-}
-
-// Start starts the provider.
-func (s *Memory) Start() error {
-	return nil
-}
-
-// Close closes the service.
-func (s *Memory) Close() error {
-	return nil
 }
 
 // Update closes the service.

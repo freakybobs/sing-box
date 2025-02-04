@@ -9,6 +9,7 @@
   "providers": [
     {
       "tag": "provider",
+      "type": "http",
       "url": "https://url.to/provider.txt",
       "interval": "24h",
       "exclude": "",
@@ -34,6 +35,12 @@
 ```
 
 ### 字段
+
+#### type
+
+==必填==
+
+订阅源的类型。目前仅支持 `http`。
 
 #### tag
 
