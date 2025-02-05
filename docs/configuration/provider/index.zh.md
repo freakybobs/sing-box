@@ -17,9 +17,6 @@
       "download_detour": "",
       "disable_user_agent": false,
       "cache_file": "provider.txt"
-
-      // 拨号字段
-      // ... 
     }
   ],
   {
@@ -83,7 +80,3 @@
 将下载的订阅内容缓存到本地的文件名。
 
 > 当 `sing-box` 作为系统服务运行，启动时很可能没有网络，利用缓存文件可避免初次获取订阅失败的问题。
-
-### 拨号字段
-
-参阅 [拨号字段](/zh/configuration/shared/dial/)。

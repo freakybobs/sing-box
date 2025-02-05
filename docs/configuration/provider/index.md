@@ -17,9 +17,6 @@ List of subscription providers.
       "download_detour": "",
       "disable_user_agent": false,
       "cache_file": "provider.txt"
-
-      // Dial Options
-      // ... 
     }
   ],
   {
@@ -85,7 +82,3 @@ Server may not provide usage information when user agent is disabled.
 Downloaded content will be cached in this file.
 
 > When `sing-box` is running as a system service, it may not have network access when it starts. Using cache file can avoid the fetch failing for the first time.
-
-### Dial Fields
-
-See [Dial Fields](/configuration/shared/dial) for details.
