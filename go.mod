@@ -6,17 +6,17 @@ require (
 	github.com/caddyserver/certmagic v0.20.0
 	github.com/cloudflare/circl v1.3.7
 	github.com/cretz/bine v0.2.0
-	github.com/go-chi/chi/v5 v5.1.0
+	github.com/go-chi/chi/v5 v5.2.1
 	github.com/go-chi/render v1.0.3
 	github.com/gofrs/uuid/v5 v5.3.0
 	github.com/hashicorp/go-version v1.7.0
-	github.com/insomniacslk/dhcp v0.0.0-20231206064809-8c70d406f6d2
+	github.com/insomniacslk/dhcp v0.0.0-20250109001534-8abf58130905
 	github.com/libdns/alidns v1.0.3
 	github.com/libdns/cloudflare v0.1.1
 	github.com/logrusorgru/aurora v2.0.3+incompatible
-	github.com/metacubex/tfo-go v0.0.0-20241006021335-daedaf0ca7aa
+	github.com/metacubex/tfo-go v0.0.0-20241231083714-66613d49c422
 	github.com/mholt/acmez v1.2.0
-	github.com/miekg/dns v1.1.62
+	github.com/miekg/dns v1.1.63
 	github.com/oschwald/maxminddb-golang v1.12.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/qjebbs/go-jsons v0.0.0-20221222033332-a534c5fc1c4c
@@ -27,31 +27,31 @@ require (
 	github.com/sagernet/fswatch v0.1.1
 	github.com/sagernet/gomobile v0.1.4
 	github.com/sagernet/gvisor v0.0.0-20241123041152-536d05261cff
-	github.com/sagernet/quic-go v0.48.2-beta.1
+	github.com/sagernet/quic-go v0.49.0-beta.1
 	github.com/sagernet/reality v0.0.0-20230406110435-ee17307e7691
-	github.com/sagernet/sing v0.6.0-beta.12
-	github.com/sagernet/sing-dns v0.4.0-beta.2
-	github.com/sagernet/sing-mux v0.3.0-alpha.1
-	github.com/sagernet/sing-quic v0.4.0-beta.4
+	github.com/sagernet/sing v0.6.1
+	github.com/sagernet/sing-dns v0.4.0
+	github.com/sagernet/sing-mux v0.3.1
+	github.com/sagernet/sing-quic v0.4.0
 	github.com/sagernet/sing-shadowsocks v0.2.7
 	github.com/sagernet/sing-shadowsocks2 v0.2.0
-	github.com/sagernet/sing-shadowtls v0.2.0-alpha.2
-	github.com/sagernet/sing-tun v0.6.0-beta.8
-	github.com/sagernet/sing-vmess v0.2.0-beta.2
+	github.com/sagernet/sing-shadowtls v0.2.0
+	github.com/sagernet/sing-tun v0.6.1
+	github.com/sagernet/sing-vmess v0.2.0
 	github.com/sagernet/smux v0.0.0-20231208180855-7041f6ea79e7
 	github.com/sagernet/utls v1.6.7
 	github.com/sagernet/wireguard-go v0.0.1-beta.5
 	github.com/sagernet/ws v0.0.0-20231204124109-acfe8907c854
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.32.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	golang.org/x/mod v0.20.0
-	golang.org/x/net v0.31.0
-	golang.org/x/sys v0.28.0
+	golang.org/x/net v0.34.0
+	golang.org/x/sys v0.30.0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20230429144221-925a1e7659e6
 	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.33.0
