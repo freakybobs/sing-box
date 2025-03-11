@@ -12,6 +12,7 @@ import (
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	"github.com/sagernet/sing-box/adapter/outbound"
+	"github.com/sagernet/sing-box/adapter/provider"
 	"github.com/sagernet/sing-box/common/dialer"
 	"github.com/sagernet/sing-box/common/taskmonitor"
 	"github.com/sagernet/sing-box/common/tls"
@@ -41,6 +42,7 @@ type Box struct {
 	endpoint   *endpoint.Manager
 	inbound    *inbound.Manager
 	outbound   *outbound.Manager
+	provider   *provider.Manager
 	connection *route.ConnectionManager
 	router     *route.Router
 	services   []adapter.LifecycleService
@@ -56,6 +58,7 @@ type Options struct {
 func Context(
 	ctx context.Context,
 	inboundRegistry adapter.InboundRegistry,
+	providerRegistry adapter.ProviderRegistry,
 	outboundRegistry adapter.OutboundRegistry,
 	endpointRegistry adapter.EndpointRegistry,
 ) context.Context {
@@ -63,6 +66,11 @@ func Context(
 		service.FromContext[adapter.InboundRegistry](ctx) == nil {
 		ctx = service.ContextWith[option.InboundOptionsRegistry](ctx, inboundRegistry)
 		ctx = service.ContextWith[adapter.InboundRegistry](ctx, inboundRegistry)
+	}
+	if service.FromContext[option.ProviderOptionsRegistry](ctx) == nil ||
+		service.FromContext[adapter.ProviderRegistry](ctx) == nil {
+		ctx = service.ContextWith[option.ProviderOptionsRegistry](ctx, providerRegistry)
+		ctx = service.ContextWith[adapter.ProviderRegistry](ctx, providerRegistry)
 	}
 	if service.FromContext[option.OutboundOptionsRegistry](ctx) == nil ||
 		service.FromContext[adapter.OutboundRegistry](ctx) == nil {
@@ -88,6 +96,7 @@ func New(options Options) (*Box, error) {
 	endpointRegistry := service.FromContext[adapter.EndpointRegistry](ctx)
 	inboundRegistry := service.FromContext[adapter.InboundRegistry](ctx)
 	outboundRegistry := service.FromContext[adapter.OutboundRegistry](ctx)
+	providerRegistry := service.FromContext[adapter.ProviderRegistry](ctx)
 
 	if endpointRegistry == nil {
 		return nil, E.New("missing endpoint registry in context")
@@ -97,6 +106,9 @@ func New(options Options) (*Box, error) {
 	}
 	if outboundRegistry == nil {
 		return nil, E.New("missing outbound registry in context")
+	}
+	if providerRegistry == nil {
+		return nil, E.New("missing provider registry in context")
 	}
 
 	ctx = pause.WithDefaultManager(ctx)
@@ -135,9 +147,11 @@ func New(options Options) (*Box, error) {
 	endpointManager := endpoint.NewManager(logFactory.NewLogger("endpoint"), endpointRegistry)
 	inboundManager := inbound.NewManager(logFactory.NewLogger("inbound"), inboundRegistry, endpointManager)
 	outboundManager := outbound.NewManager(logFactory.NewLogger("outbound"), outboundRegistry, endpointManager, routeOptions.Final)
+	providerManager := provider.NewManager(logFactory.NewLogger("provider"), providerRegistry)
 	service.MustRegister[adapter.EndpointManager](ctx, endpointManager)
 	service.MustRegister[adapter.InboundManager](ctx, inboundManager)
 	service.MustRegister[adapter.OutboundManager](ctx, outboundManager)
+	service.MustRegister[adapter.ProviderManager](ctx, providerManager)
 
 	networkManager, err := route.NewNetworkManager(ctx, logFactory.NewLogger("network"), routeOptions)
 	if err != nil {
@@ -203,6 +217,10 @@ func New(options Options) (*Box, error) {
 			return nil, E.Cause(err, "initialize inbound[", i, "]")
 		}
 	}
+	options.Outbounds = append(options.Outbounds, option.Outbound{
+		Tag:  "Compatible",
+		Type: C.TypeDirect,
+	})
 	for i, outboundOptions := range options.Outbounds {
 		var tag string
 		if outboundOptions.Tag != "" {
@@ -227,6 +245,25 @@ func New(options Options) (*Box, error) {
 		)
 		if err != nil {
 			return nil, E.Cause(err, "initialize outbound[", i, "]")
+		}
+	}
+	for i, providerOptions := range options.Providers {
+		var tag string
+		if providerOptions.Tag != "" {
+			tag = providerOptions.Tag
+		} else {
+			tag = F.ToString(i)
+		}
+		err = providerManager.Create(
+			ctx,
+			router,
+			logFactory,
+			tag,
+			providerOptions.Type,
+			providerOptions.Options,
+		)
+		if err != nil {
+			return nil, E.Cause(err, "initialize provider[", i, "]")
 		}
 	}
 	outboundManager.Initialize(common.Must1(
@@ -293,6 +330,7 @@ func New(options Options) (*Box, error) {
 		endpoint:   endpointManager,
 		inbound:    inboundManager,
 		outbound:   outboundManager,
+		provider:   providerManager,
 		connection: connectionManager,
 		router:     router,
 		createdAt:  createdAt,
@@ -353,11 +391,11 @@ func (s *Box) preStart() error {
 	if err != nil {
 		return err
 	}
-	err = adapter.Start(adapter.StartStateInitialize, s.network, s.connection, s.router, s.outbound, s.inbound, s.endpoint)
+	err = adapter.Start(adapter.StartStateInitialize, s.network, s.connection, s.router, s.provider, s.outbound, s.inbound, s.endpoint)
 	if err != nil {
 		return err
 	}
-	err = adapter.Start(adapter.StartStateStart, s.outbound, s.network, s.connection, s.router)
+	err = adapter.Start(adapter.StartStateStart, s.provider, s.outbound, s.network, s.connection, s.router)
 	if err != nil {
 		return err
 	}
@@ -381,7 +419,7 @@ func (s *Box) start() error {
 	if err != nil {
 		return err
 	}
-	err = adapter.Start(adapter.StartStatePostStart, s.outbound, s.network, s.connection, s.router, s.inbound, s.endpoint)
+	err = adapter.Start(adapter.StartStatePostStart, s.provider, s.outbound, s.network, s.connection, s.router, s.inbound, s.endpoint)
 	if err != nil {
 		return err
 	}
@@ -389,7 +427,7 @@ func (s *Box) start() error {
 	if err != nil {
 		return err
 	}
-	err = adapter.Start(adapter.StartStateStarted, s.network, s.connection, s.router, s.outbound, s.inbound, s.endpoint)
+	err = adapter.Start(adapter.StartStateStarted, s.network, s.connection, s.router, s.provider, s.outbound, s.inbound, s.endpoint)
 	if err != nil {
 		return err
 	}
@@ -408,7 +446,7 @@ func (s *Box) Close() error {
 		close(s.done)
 	}
 	err := common.Close(
-		s.inbound, s.outbound, s.endpoint, s.router, s.connection, s.network,
+		s.inbound, s.provider, s.outbound, s.endpoint, s.router, s.connection, s.network,
 	)
 	for _, lifecycleService := range s.services {
 		err = E.Append(err, lifecycleService.Close(), func(err error) error {
