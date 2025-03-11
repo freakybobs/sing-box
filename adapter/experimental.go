@@ -41,6 +41,8 @@ type CacheFile interface {
 	StoreGroupExpand(group string, expand bool) error
 	LoadRuleSet(tag string) *SavedBinary
 	SaveRuleSet(tag string, set *SavedBinary) error
+	LoadSubscription(tag string) *SavedBinary
+	SaveSubscription(tag string, info *SavedBinary) error
 }
 
 type SavedBinary struct {
@@ -98,6 +100,8 @@ type OutboundGroup interface {
 	Outbound
 	Now() string
 	All() []string
+	HasProvider(tag string) bool
+	UpdateOutbounds(tag string) error
 }
 
 type URLTestGroup interface {

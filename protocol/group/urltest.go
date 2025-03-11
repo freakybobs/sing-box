@@ -3,6 +3,7 @@ package group
 import (
 	"context"
 	"net"
+	"regexp"
 	"sync"
 	"time"
 
@@ -37,47 +38,91 @@ type URLTest struct {
 	ctx                          context.Context
 	router                       adapter.Router
 	outbound                     adapter.OutboundManager
+	provider                     adapter.ProviderManager
 	connection                   adapter.ConnectionManager
 	logger                       log.ContextLogger
 	tags                         []string
+	outboundsCache               map[string][]adapter.Outbound
+	providers                    map[string]adapter.Provider
 	link                         string
 	interval                     time.Duration
 	tolerance                    uint16
 	idleTimeout                  time.Duration
 	group                        *URLTestGroup
 	interruptExternalConnections bool
+
+	include         *regexp.Regexp
+	exclude         *regexp.Regexp
+	providerTags    []string
+	useAllProviders bool
 }
 
 func NewURLTest(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.URLTestOutboundOptions) (adapter.Outbound, error) {
+	var (
+		err              error
+		exclude, include *regexp.Regexp
+	)
+	if options.Exclude != "" {
+		exclude, err = regexp.Compile(options.Exclude)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if options.Include != "" {
+		include, err = regexp.Compile(options.Include)
+		if err != nil {
+			return nil, err
+		}
+	}
 	outbound := &URLTest{
 		Adapter:                      outbound.NewAdapter(C.TypeURLTest, tag, []string{N.NetworkTCP, N.NetworkUDP}, options.Outbounds),
 		ctx:                          ctx,
 		router:                       router,
 		outbound:                     service.FromContext[adapter.OutboundManager](ctx),
+		provider:                     service.FromContext[adapter.ProviderManager](ctx),
 		connection:                   service.FromContext[adapter.ConnectionManager](ctx),
 		logger:                       logger,
 		tags:                         options.Outbounds,
+		outboundsCache:               make(map[string][]adapter.Outbound),
+		providers:                    make(map[string]adapter.Provider),
 		link:                         options.URL,
 		interval:                     time.Duration(options.Interval),
 		tolerance:                    options.Tolerance,
 		idleTimeout:                  time.Duration(options.IdleTimeout),
 		interruptExternalConnections: options.InterruptExistConnections,
-	}
-	if len(outbound.tags) == 0 {
-		return nil, E.New("missing tags")
+		include:                      include,
+		exclude:                      exclude,
+		providerTags:                 options.Providers,
+		useAllProviders:              options.UseAllProviders,
 	}
 	return outbound, nil
 }
 
 func (s *URLTest) Start() error {
-	outbounds := make([]adapter.Outbound, 0, len(s.tags))
-	for i, tag := range s.tags {
-		detour, loaded := s.outbound.Outbound(tag)
-		if !loaded {
-			return E.New("outbound ", i, " not found: ", tag)
+	if s.useAllProviders {
+		var providerTags []string
+		for _, provider := range s.provider.Providers() {
+			providerTags = append(providerTags, provider.Tag())
+			s.providers[provider.Tag()] = provider
 		}
-		outbounds = append(outbounds, detour)
+		s.providerTags = providerTags
+	} else {
+		for i, tag := range s.providerTags {
+			provider, loaded := s.provider.Provider(tag)
+			if !loaded {
+				E.New("outbound provider ", i, " not found: ", tag)
+			}
+			s.providers[tag] = provider
+		}
 	}
+	if len(s.tags)+len(s.providerTags) == 0 {
+		return E.New("missing outbound and provider tags")
+	}
+	tag, outbounds, err := s.filterOutbounds("")
+	if err != nil {
+		return err
+	}
+	s.tags = tag
 	group, err := NewURLTestGroup(s.ctx, s.outbound, s.logger, outbounds, s.link, s.interval, s.tolerance, s.idleTimeout, s.interruptExternalConnections)
 	if err != nil {
 		return err
@@ -177,6 +222,80 @@ func (s *URLTest) InterfaceUpdated() {
 	return
 }
 
+func (s *URLTest) HasProvider(tag string) bool {
+	if s.useAllProviders {
+		_, loaded := s.provider.Provider(tag)
+		return loaded
+	}
+	return common.Contains(s.providerTags, tag)
+}
+
+func (s *URLTest) UpdateOutbounds(tag string) error {
+	_, loaded := s.providers[tag]
+	if !loaded {
+		return E.New("outbound provider not found: ", tag)
+	}
+	tags, outbounds, _ := s.filterOutbounds(tag)
+	s.tags = tags
+	s.group.outbounds = outbounds
+	for _, p := range s.provider.Providers() {
+		if p.Tag() != tag && p.IsUpdating() {
+			return nil
+		}
+	}
+	s.group.access.Lock()
+	if s.group.ticker != nil {
+		s.group.ticker.Reset(s.group.interval)
+	}
+	s.group.access.Unlock()
+	go s.group.CheckOutbounds(false)
+	return nil
+}
+
+func (s *URLTest) filterOutbounds(tag string) ([]string, []adapter.Outbound, error) {
+	var (
+		tags      = s.Dependencies()
+		outbounds []adapter.Outbound
+	)
+	for i, tag := range tags {
+		detour, loaded := s.outbound.Outbound(tag)
+		if !loaded {
+			return nil, nil, E.New("outbound ", i, " not found: ", tag)
+		}
+		outbounds = append(outbounds, detour)
+	}
+	for _, providerTag := range s.providerTags {
+		if providerTag != tag && s.outboundsCache[providerTag] != nil {
+			for _, detour := range s.outboundsCache[providerTag] {
+				tags = append(tags, detour.Tag())
+				outbounds = append(outbounds, detour)
+			}
+			continue
+		}
+		provider, _ := s.providers[providerTag]
+		var cache []adapter.Outbound
+		for _, detour := range provider.Outbounds() {
+			tag := detour.Tag()
+			if s.include != nil && !s.include.MatchString(tag) {
+				continue
+			}
+			if s.exclude != nil && s.exclude.MatchString(tag) {
+				continue
+			}
+			tags = append(tags, tag)
+			cache = append(cache, detour)
+		}
+		outbounds = append(outbounds, cache...)
+		s.outboundsCache[providerTag] = cache
+	}
+	if len(tags) == 0 {
+		detour, _ := s.outbound.Outbound("Compatible")
+		tags = append(tags, detour.Tag())
+		outbounds = append(outbounds, detour)
+	}
+	return tags, outbounds, nil
+}
+
 type URLTestGroup struct {
 	ctx                          context.Context
 	router                       adapter.Router
@@ -232,6 +351,7 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 		tolerance:                    tolerance,
 		idleTimeout:                  idleTimeout,
 		history:                      history,
+		checking:                     atomic.Bool{},
 		close:                        make(chan struct{}),
 		pauseManager:                 service.FromContext[pause.Manager](ctx),
 		interruptGroup:               interrupt.NewGroup(),
