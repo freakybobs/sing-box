@@ -50,6 +50,7 @@ type NetworkManager struct {
 	endpoint               adapter.EndpointManager
 	inbound                adapter.InboundManager
 	outbound               adapter.OutboundManager
+	provider               adapter.ProviderManager
 	wifiState              adapter.WIFIState
 	started                bool
 }
@@ -72,6 +73,7 @@ func NewNetworkManager(ctx context.Context, logger logger.ContextLogger, routeOp
 		endpoint:          service.FromContext[adapter.EndpointManager](ctx),
 		inbound:           service.FromContext[adapter.InboundManager](ctx),
 		outbound:          service.FromContext[adapter.OutboundManager](ctx),
+		provider:          service.FromContext[adapter.ProviderManager](ctx),
 	}
 	if routeOptions.DefaultNetworkStrategy != nil {
 		if routeOptions.DefaultInterface != "" {
@@ -385,6 +387,13 @@ func (r *NetworkManager) ResetNetwork() {
 
 	for _, outbound := range r.outbound.Outbounds() {
 		listener, isListener := outbound.(adapter.InterfaceUpdateListener)
+		if isListener {
+			listener.InterfaceUpdated()
+		}
+	}
+
+	for _, provider := range r.provider.Providers() {
+		listener, isListener := provider.(adapter.InterfaceUpdateListener)
 		if isListener {
 			listener.InterfaceUpdated()
 		}
