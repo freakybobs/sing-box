@@ -117,10 +117,10 @@ jobs:
           path: SFA/app/build/outputs/apk/other/release/*-universal-signed.apk
           compression-level: 9
 
-Upload-Release:
+  Upload-Release:
     permissions: write-all
     if: ${{ github.ref_type == 'branch' && !startsWith(github.event_name, 'pull_request') }}
-    needs: [Build SFA]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
