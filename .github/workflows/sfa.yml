@@ -1,126 +1,155 @@
 name: Build SFA
 
 on:
-  push:
   workflow_dispatch:
+  push:
+    branches:
+      - dev-next
+      - main
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      TAGS: "with_quic,with_dhcp,with_wireguard,with_shadowsocksr,with_ech,with_utls,with_reality_server,with_clash_api,with_v2ray_api,with_gvisor"
-
     steps:
       - uses: actions/checkout@v4.1.1
         with:
           fetch-depth: 0
 
       - name: get latest go version
-        id: go_version
+        id: go
         run: |
-          echo go_version=$(curl -s https://raw.githubusercontent.com/actions/go-versions/update-versions-manifest-file/versions-manifest.json | grep -oE '"version": "[0-9]{1}.[0-9]{1,}(.[0-9]{1,})?"' | head -1 | cut -d':' -f2 | sed 's/ //g; s/"//g') >> $GITHUB_OUTPUT
-      - name: Get latest build tools version
-        id: sdk
-        run: echo version=$(ls $ANDROID_HOME/build-tools | tail -n 1) >> $GITHUB_OUTPUT
+          echo version=$(curl -s https://raw.githubusercontent.com/actions/go-versions/update-versions-manifest-file/versions-manifest.json | grep -oE '"version": "[0-9]{1}.[0-9]{1,}(.[0-9]{1,})?"' | head -1 | cut -d':' -f2 | sed 's/ //g; s/"//g') >> $GITHUB_OUTPUT
 
-      - name: Setup Go
-        uses: actions/setup-go@v4.1.0
+      - name: setup go
+        uses: actions/setup-go@v5.0.0
         with:
-          go-version: ${{ steps.go_version.outputs.go_version }}
+          go-version: ${{steps.go.outputs.version}}
 
-      - name: Checkout SFA Repository
+      - name: checkout app repository
         uses: actions/checkout@v4.1.1
         with:
+          path: sfa
           repository: SagerNet/sing-box-for-android
-          path: SFA
           submodules: recursive
 
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      - name: setup java
+        uses: actions/setup-java@v4.0.0
         with:
           distribution: 'oracle'
-          java-version: 20
+          java-version: 21
 
-      - name: Setup NDK
+      - name: setup ndk
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: r26b
-          add-to-path: false
-          local-cache: false
 
-      - name: Build SFA
-        env:
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+      - name: get latest build tools version
+        id: sdk
+        run: echo version=$(ls $ANDROID_HOME/build-tools | tail -n 1) >> $GITHUB_OUTPUT
+
+      - name: get sing-box version
+        id: sing-box
         run: |
           git remote add sekai https://github.com/SagerNet/sing-box
-          git fetch sekai
-          mkdir -p SFA/app/libs/
+          git fetch --tags --force sekai
+          if [ "${{ github.ref_name }}" == "dev-next" ]; then
+            TAG=$(git describe --tags $(git rev-list --tags --max-count=1))
+          else
+            TAG=$(git describe --tags --abbrev=0)
+          fi
+          REV=$(git rev-parse --short HEAD)
+          echo "version=${TAG}-${REV}" >> $GITHUB_OUTPUT
+
+      - name: build libbox
+        env:
+          CC: ${{steps.setup-ndk.outputs.ndk-path}}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang
+          TAGS: with_quic,with_dhcp,with_wireguard,with_shadowsocksr,with_ech,with_utls,with_clash_api,with_gvisor
+          VERSION: ${{steps.sing-box.outputs.version}}
+          CGO_ENABLED: '0'
+        run: |
           make lib_install
-          version=$(CGO_ENABLED=0 go run ./cmd/internal/read_tag)
-          CC=${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang
-          CGO_ENABLED=0 gomobile bind -v -a -trimpath -androidapi 21 -javapkg=io.nekohasekai -libname=box -tags ${TAGS} -ldflags "-X github.com/sagernet/sing-box/constant.Version=${version} -s -w -buildid=" ./experimental/libbox
-          cp ./libbox.aar SFA/app/libs/
-          cd SFA
+          gomobile bind -v -a -trimpath -androidapi 21 -javapkg=io.nekohasekai -libname=box -tags ${TAGS} -ldflags "-X github.com/sagernet/sing-box/constant.Version=${VERSION} -s -w -buildid=" ./experimental/libbox
+
+      - name: setup build env && build app
+        env:
+          VERSION: ${{steps.sing-box.outputs.version}}
+          KEYSTORE: ${{secrets.SIGN_KEY}}
+          ALIAS_NAME: ${{secrets.ALIAS}}
+          KEYSTORE_PASS: ${{secrets.SIGN_KEY}}
+        run: |
+          mkdir -p sfa/app/libs/
+          cp ./libbox.aar sfa/app/libs/
+          cd sfa
           echo "" >> gradle.properties
           echo "org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8 -XX:+UseParallelGC" >> gradle.properties
           echo "org.gradle.caching=true" >> gradle.properties
           echo "org.gradle.parallel=true" >> gradle.properties
-          echo "VERSION_NAME=${version}" > local.properties
+          echo "VERSION_NAME=${VERSION}" > local.properties
           echo "VERSION_CODE=$(date +%Y%m%d%H)" >> local.properties
           sed -i '/signingConfigs\.release/d' app/build.gradle
           chmod +x ./gradlew
           ./gradlew assembleRelease --debug
-      
-      - name: Sign SFA
+
+      - name: sign app
         uses: PuerNya/sign-android-release@v2.0.4
         env:
           BUILD_TOOLS_VERSION: ${{steps.sdk.outputs.version}}
         with:
-          releaseDirectory: SFA/app/build/outputs/apk/other/release
-          signingKeyBase64: ${{ secrets.SIGN_KEY }}
-          alias: ${{ secrets.ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          alias: ${{secrets.ALIAS}}
+          releaseDirectory: sfa/app/build/outputs/apk/other/release
+          signingKeyBase64: ${{secrets.SIGN_KEY}}
+          keyStorePassword: ${{secrets.KEY_STORE_PASSWORD}}
 
-      - name: Upload arm64-v8a artifact
+      - name: upload arm64-v8a apk
         uses: actions/upload-artifact@v4.1.0
+        env:
+          version: ${{steps.sing-box.outputs.version}}
         with:
-          name: SFA-arm64-v8a
-          path: SFA/app/build/outputs/apk/other/release/*-arm64-v8a-signed.apk
+          name: sfa-${{env.version}}-arm64-v8a
+          path: sfa/app/build/outputs/apk/other/release/*-arm64-v8a-signed.apk
           compression-level: 9
 
-      - name: Upload armeabi-v7a artifact
+      - name: upload armeabi-v7a apk
         uses: actions/upload-artifact@v4.1.0
+        env:
+          version: ${{steps.sing-box.outputs.version}}
         with:
-          name: SFA-armeabi-v7a
-          path: SFA/app/build/outputs/apk/other/release/*-armeabi-v7a-signed.apk
+          name: sfa-${{env.version}}-armeabi-v7a
+          path: sfa/app/build/outputs/apk/other/release/*-armeabi-v7a-signed.apk
           compression-level: 9
 
-      - name: Upload x86_64 artifact
+      - name: upload x86_64 apk
         uses: actions/upload-artifact@v4.1.0
+        env:
+          version: ${{steps.sing-box.outputs.version}}
         with:
-          name: SFA-x86_64
-          path: SFA/app/build/outputs/apk/other/release/*-x86_64-signed.apk
+          name: sfa-${{env.version}}-x86_64
+          path: sfa/app/build/outputs/apk/other/release/*-x86_64-signed.apk
           compression-level: 9
 
-      - name: Upload x86 artifact
+      - name: upload x86 apk
         uses: actions/upload-artifact@v4.1.0
+        env:
+          version: ${{steps.sing-box.outputs.version}}
         with:
-          name: SFA-x86
-          path: SFA/app/build/outputs/apk/other/release/*-x86-signed.apk
+          name: sfa-${{env.version}}-x86
+          path: sfa/app/build/outputs/apk/other/release/*-x86-signed.apk
           compression-level: 9
 
-      - name: Upload universal artifact
+      - name: upload universal apk
         uses: actions/upload-artifact@v4.1.0
+        env:
+          version: ${{steps.sing-box.outputs.version}}
         with:
-          name: SFA-universal
-          path: SFA/app/build/outputs/apk/other/release/*-universal-signed.apk
+          name: sfa-${{env.version}}-universal
+          path: sfa/app/build/outputs/apk/other/release/*-universal-signed.apk
           compression-level: 9
 
   Upload-Release:
     permissions: write-all
     if: ${{ github.ref_type == 'branch' && !startsWith(github.event_name, 'pull_request') }}
-    needs: [build]
+    needs: [Build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -140,12 +169,12 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          path: SFA/app/build/outputs/apk/other/release/
+          path: sfa/app/build/outputs/apk/other/release/
           merge-multiple: true
 
       - name: Display structure of downloaded files
         run: ls -R
-        working-directory: SFA/app/build/outputs/apk/other/release
+        working-directory: sfa/app/build/outputs/apk/other/release
 
       - name: Set Env
         run: |
@@ -170,7 +199,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           files: |
-            SFA/app/build/outputs/apk/other/release/*
+            sfa/app/build/outputs/apk/other/release/*
           prerelease: true
           generate_release_notes: true
           body_path: release.txt
@@ -181,7 +210,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           files: |
-            SFA/app/build/outputs/apk/other/release/*
+            sfa/app/build/outputs/apk/other/release/*
           prerelease: false
           generate_release_notes: true
           body_path: release.txt
