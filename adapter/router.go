@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/sagernet/sing-box/common/geoip"
 	C "github.com/sagernet/sing-box/constant"
@@ -30,6 +31,7 @@ type Router interface {
 	GeoIPReader() *geoip.Reader
 	LoadGeosite(code string) (Rule, error)
 	RuleSet(tag string) (RuleSet, bool)
+	RuleSets() []RuleSet
 	NeedWIFIState() bool
 
 	Exchange(ctx context.Context, message *mdns.Msg) (*mdns.Msg, error)
@@ -62,6 +64,10 @@ type ConnectionRouterEx interface {
 
 type RuleSet interface {
 	Name() string
+	Type() string
+	Format() string
+	RuleCount() uint64
+	UpdatedAt() time.Time
 	StartContext(ctx context.Context, startContext *HTTPStartContext) error
 	PostStart() error
 	Metadata() RuleSetMetadata
