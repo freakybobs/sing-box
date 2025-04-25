@@ -48,6 +48,8 @@ type Server struct {
 	httpServer     *http.Server
 	trafficManager *trafficontrol.Manager
 	urlTestHistory *urltest.HistoryStorage
+	logDebug       bool
+
 	mode           string
 	modeList       []string
 	modeUpdateHook chan<- struct{}
@@ -72,6 +74,7 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
 			Handler: chiRouter,
 		},
 		trafficManager:           trafficManager,
+		logDebug:                 logFactory.Level() >= log.LevelDebug,
 		modeList:                 options.ModeList,
 		externalController:       options.ExternalController != "",
 		externalUIDownloadURL:    options.ExternalUIDownloadURL,
