@@ -57,8 +57,26 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:clean :app:assembleOtherRelease && ./gradlew --stop
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4.3.1
+      - name: sign app
+        uses: PuerNya/sign-android-release@v2.0.4
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
         with:
-          name: SFA
-          path: clients/android/app/build/outputs/apk/other/release/
+          alias: ${{secrets.ALIAS}}
+          releaseDirectory: clients/android/app/build/outputs/apk/other/release
+          signingKeyBase64: ${{secrets.SIGN_KEY}}
+          keyStorePassword: ${{secrets.KEY_STORE_PASSWORD}}
+
+      - name: upload arm64-v8a apk
+        uses: actions/upload-artifact@v4.1.0
+        with:
+          name: sfa-arm64-v8a
+          path: clients/android/app/build/outputs/apk/other/release/*-arm64-v8a-signed.apk
+          compression-level: 9
+
+      - name: upload armeabi-v7a apk
+        uses: actions/upload-artifact@v4.1.0
+        with:
+          name: sfa-armeabi-v7a
+          path: clients/android/app/build/outputs/apk/other/release/*-armeabi-v7a-signed.apk
+          compression-level: 9
