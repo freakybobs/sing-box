@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - dev-next
       - dev
       - main
 
@@ -227,7 +226,5 @@ jobs:
             sfa/app/build/outputs/apk/other/release/*
           context: ${{ steps.prepare-context.outputs.CONTEXT }}
           parse_mode: HTML
-          large_file: true
-          api_id: ${{ secrets.API_ID }}
-          api_hash: ${{ secrets.API_HASH }}
+          large_file: false
           method: sendFile
